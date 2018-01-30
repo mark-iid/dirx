@@ -212,8 +212,8 @@ Get_Attr:
 Intro           db "                 .oO DIRX Fast Directory Listing 1.1 Oo.",0d,0a
                 db "                      Created By Mark Earnest. 1994",0d,0a,0d,0a
                 db " File Name     Attributes                 File Name    Attributes",0d,0a
-                db "ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿",0d,0a,0
-End_Line        db "ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ",0d,0a,0
+                db "------------------------------------------------------------------------------",0d,0a,0
+End_Line        db "------------------------------------------------------------------------------",0d,0a,0
 Line            db 179,0
 Directory       db " Dir",0
 Hidden          db " Hid",0
@@ -233,6 +233,6 @@ FName           db "Pink Floyd   ",00
 FLen            db ?
 FBase           db 8 dup("?"),0
 FExt            db 3 dup("?"),0
-File_Name       db 128 dup(""),0                   
+File_Name       db 128 dup("ï¿½"),0                   
 
 CSeg            Ends
