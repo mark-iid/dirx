@@ -7,6 +7,22 @@ CSeg            Segment Byte Public 'Prog'
                 Assume CS:Cseg, DS:Cseg, ES:Cseg
                 Org            100h
 
+;------------------------------------------------------------------------------
+; Macro: Set_DTA
+; 
+; Description:
+; This macro sets the Data Transfer Area (DTA) for DOS file operations. It 
+; saves the current DX register, sets the AH register to 1Ah (DOS Set DTA 
+; function), moves the offset of the file list to the DX register, and calls 
+; interrupt 21h to set the DTA. Finally, it restores the DX register.
+; 
+; Parameters:
+; #1 - The offset of the file list to be used for the DTA.
+; 
+; Usage:
+; Call this macro to set the DTA before performing file operations that 
+; require a specific DTA.
+;------------------------------------------------------------------------------
 Set_DTA         Macro                           ; Set Data Transfer Access 
                 push dx                         ; Save DX Register
                 mov ah, 1ah                     ; DOS Set DTA
@@ -15,6 +31,19 @@ Set_DTA         Macro                           ; Set Data Transfer Access
                 pop dx                          ; Restore DX Register
 #EM                                             ; End Macro
 
+; Macro: Print
+; Description: This macro is used to print a string to the output.
+; Parameters: 
+;   #1 - The offset of the string to be printed.
+; 
+; Instructions:
+;   1. Push the current value of the DX register onto the stack to save it.
+;   2. Move the offset of the string (passed as parameter #1) into the DX register.
+;   3. Call the `write_str` function to print the string.
+;   4. Pop the saved value of the DX register from the stack to restore it.
+; 
+; Usage:
+;   Print <string_offset>
 Print           Macro                           ; Print String
                 push dx                         ; Save DX Register
                 mov dx, offset #1               ; Load String
@@ -23,6 +52,16 @@ Print           Macro                           ; Print String
 #EM                                             ; End Macro
 
 
+; This is the main entry point of the program.
+; It performs the following steps:
+; 1. Initializes the machine video settings.
+; 2. Hides the cursor.
+; 3. Initializes the program.
+; 4. Prints the introduction.
+; 5. Retrieves the first two files.
+; 6. Retrieves the next files.
+; 7. Shows the cursor.
+; 8. Ends the program and returns control to DOS.
 MAIN:                    
                 call Vid_Ini                    ; Start Machine Video 
                 call Hide_Cursor                ; hide cursor        
@@ -34,6 +73,26 @@ MAIN:
                 mov ah,4ch                      ; DOS End Program
                 int 21h                         ; Call DOS
 
+; This code initializes a program by processing a command tail or setting a default file name.
+; 
+; Prog_Ini:
+; - Clears the CX register.
+; - Loads the command tail length from memory location 0080h into CL.
+; - If the command tail length is zero, it jumps to label L20 to set a default file name.
+; - Otherwise, it increments SI to point to the command tail, loads the destination string address into DI,
+;   decreases the command tail length, and calls Dup_Left to copy the command tail to the destination string.
+; - Jumps to label L21 to skip setting the default file name.
+; 
+; L20:
+; - Sets CX to 4 to copy 4 characters.
+; - Loads the address of the default file name "*.*" into SI.
+; - Loads the destination string address into DI.
+; - Calls Dup_Left to copy "*.*" into the destination string.
+; 
+; L21:
+; - Sets the AL register to 0f (BWhite on Black).
+; - Calls change_color to set the display color.
+; - Returns from the subroutine.
 Prog_Ini:
                 xor cx,cx                       ; clear cx
                 mov si, 0080h                   ; load command tail
@@ -59,6 +118,36 @@ Print_Intro:
                 Print Intro                     ; Print Program Information
                 ret                             ; Return
 
+; SplitFName:
+; This procedure splits a file name into its base name and extension.
+; It uses the period (.) as the separator between the base name and the extension.
+; 
+; Registers used:
+; - DI: Destination index for string operations
+; - SI: Source index for string operations
+; - CX: Counter for string operations
+; - AL: Accumulator for comparison results
+; 
+; External procedures called:
+; - find_str: Finds the position of a period (.) in the file name
+; - dup_right: Copies the extension part of the file name to the FExt buffer
+; - dup_left: Copies the base part of the file name to the FBase buffer
+; - dup_str: Duplicates a string
+; 
+; Data:
+; - FName: The full file name to be split
+; - FileSep: The period (.) character used as a separator
+; - FExt: Buffer to store the file extension
+; - FBase: Buffer to store the base name of the file
+; 
+; Flow:
+; 1. Load the file name and period separator into DI and SI respectively.
+; 2. Call find_str to locate the period in the file name.
+; 3. If no period is found, handle special cases for 1 or 2 character file names.
+; 4. If a period is found, split the file name into base and extension.
+; 5. Copy the base name to FBase and the extension to FExt.
+; 6. Handle special cases for file names with 1 or 2 characters.
+; 7. Return from the procedure.
 SplitFName:   
                 mov di, offset FName            ; Load FileName
                 mov si, offset FileSep          ; Load Period (.)
@@ -93,6 +182,21 @@ L15:            mov al, 46                      ; ASCII For .
 L16:            ret                             ; Return
 
 
+; Get_First2Files:
+; This routine sets up the Disk Transfer Area (DTA) and searches for the first two files matching a specified file mask.
+; 
+; Steps:
+; 1. Set the Disk Transfer Area (DTA) using the Set_DTA macro.
+; 2. Load the CX register with 23 to specify that all files should be considered.
+; 3. Load the DX register with the offset address of the file mask.
+; 4. Set AH to 4Eh to prepare for the DOS Find First File function.
+; 5. Call interrupt 21h to execute the DOS Find First File function.
+; 6. If the carry flag is set (indicating no files found), jump to label L4.
+; 7. If files are found, call the Main_Get_Files routine to process the files.
+; 8. Reset the CX register to 0.
+; 9. Set the CX register to 6 to initialize a counter.
+; 10. Call the send_crlf routine to move to the next line.
+; 11. Return from the routine.
 Get_First2Files:
                 Set_DTA Reserved                ; Run Set_DTA Macro
                 mov cx, 23                      ; All Files
@@ -106,6 +210,35 @@ Get_First2Files:
                 call send_crlf                  ; GoTo Next Line
                 ret                             ; Return
 
+; This routine iterates through files in a directory, processes them, and handles screen output.
+; It uses DOS interrupts to find the next file and perform various screen operations.
+;
+; Get_NextFiles:
+; - Sets up the Disk Transfer Area (DTA) for file operations.
+; - Uses DOS interrupt 21h with function 4Fh to find the next file.
+; - If no more files are found, it jumps to label L3.
+; - Calls Main_Get_Files to process the found files.
+; - Increments the CL register and compares it to 23.
+; - If CL is greater than 23, it jumps to label L1.
+; - Calls send_crlf to move to the next line and loops back to find the next file.
+;
+; L1:
+; - Sets the cursor to column 15 and updates the real cursor position.
+; - Changes the text color to flashing yellow on black.
+; - Prints a message and waits for a key press.
+; - Resets the cursor to column 0 and clears the line.
+; - Clears the CX register and loops back to find the next file.
+;
+; L2:
+; - Updates the virtual cursor position.
+; - Moves the cursor to various columns (41, 54, 77) and prints lines.
+; - Moves to the next line.
+;
+; L4:
+; - Restores the DX register.
+;
+; L3:
+; - Prints the end line message and returns from the routine.
 Get_NextFiles:
                 Set_DTA Reserved                ; Run Set_DTA Macro
                 mov ah, 4fh                     ; DOS Find Next File
@@ -147,6 +280,29 @@ L4:             pop dx                          ; Restore DX
 L3:             print End_Line                  ; Print End Line
                 ret                             ; Return
 
+; Main_Get_Files:
+; This routine processes and prints file information in a formatted manner.
+; It performs the following steps:
+; 1. Loads the file name into the SI register.
+; 2. Saves the current count in the CX register.
+; 3. Calls length_str to get the length of the file name.
+; 4. Calls SplitFName to split the file name into base and extension.
+; 5. Restores the count from the CX register.
+; 6. Prints a line.
+; 7. Prints the base part of the file name.
+; 8. Updates the virtual cursor location.
+; 9. Sets the screen column to 11 and updates the real cursor.
+; 10. Prints the file extension.
+; 11. Moves the cursor to column 14 and updates the real cursor.
+; 12. Prints a line.
+; 13. Calls Get_Attr to report file attributes.
+; 14. Runs the Set_DTA macro with the Reserved parameter.
+; 15. Uses DOS interrupt 21h with function 4Fh to find the next file.
+; 16. If no files are left, jumps to label L2.
+; 17. Repeats steps 1-13 for the next file, with different cursor positions.
+; 18. Moves the cursor to column 77 and updates the real cursor.
+; 19. Prints a line.
+; 20. Returns from the routine.
 Main_Get_Files:
                 mov si, offset FName            ; Load FileName
                 push cx                         ; Save Count
@@ -189,6 +345,15 @@ Main_Get_Files:
                 print line                      ; Print A Line
                 ret                             ; Return
 
+; This subroutine checks the attribute byte of a file and prints the corresponding attribute types.
+; It saves the current value of the AX register, then loads the attribute byte into AH.
+; The attribute byte is tested for specific bits to determine the file attributes:
+; - Bit 0 (1): Read-Only
+; - Bit 1 (2): Hidden
+; - Bit 2 (4): System
+; - Bit 4 (16): Directory
+; If the corresponding bit is set, the appropriate attribute type is printed.
+; Finally, the original value of AX is restored and the subroutine returns.
 Get_Attr:
                 push ax                         ; Save AX
                 mov ah, byte ptr Attrib         ; Load Attribute Byte
