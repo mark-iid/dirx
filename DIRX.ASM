@@ -1,7 +1,6 @@
 ; DIRX.ASM
 ; DIRX Fast Directory Listing
-; By Mark Earnest
-; Uses MarkLib Library functions
+; Mark Earnest
 ; Latest Revision: 6/3/95
 
 CSeg            Segment Byte Public 'Prog'
@@ -208,6 +207,384 @@ Get_Attr:
                 pop ax                          ; Restore AX
                 ret                             ; Return
 
+; Writes a string to the screen
+;       Pass: ds:dx = address of string
+;--------------------------------------
+Write_Str:      
+                push ax                         ; save registers                        
+                push dx
+                push si
+                pushf
+                cld                             ; set direction for inc
+                mov si,dx                       ; place address into si
+String_Loop:
+                lodsb                           ; get char into al
+                or al,al                        ; have I found 0 yet?
+                jz End_Of_String                ; yes? then I'm done
+                cmp al, 0d
+                jne >s1
+                lodsb
+                or al,al                        ; have I found 0 yet?
+                jz End_Of_String                ; yes? then I'm done
+                cmp al, 0a               
+                jne >s1
+                call send_crlf
+                jmp String_Loop
+S1:             mov dl,al                       ; no? then write the char.
+                call Write_Char
+                jmp String_Loop
+End_Of_String:
+                popf                            ; restore registers
+                pop si
+                pop dx
+                pop ax
+                ret
+
+; initalize video memory
+;       Pass: nothing
+;       Return: nothing
+;-------------------------
+Vid_Ini:
+                jmp offset start
+
+Screen_Seg      dw 0B800h
+Screen_ptr      dw 0
+Screen_X        db 0
+Screen_Y        db 0
+Color_Attr      db 7
+
+start:          push ax                         ; save registers
+                push bx
+                push cx
+                push dx
+                mov bx,0B800h                   ; set for color
+                int 11h                         ; get equipment list
+                and al,30h                      ; keep display type
+                cmp al,30h                      ; is it mono?
+                jne Set_Base                    ; no? use b800
+                mov bx,0B000h                   ; yes? use b000
+Set_Base:
+                mov Screen_Seg,bx               ; save screen segment
+                call update_virtual_cursor      ; set current cursor location
+                pop dx                          ; restore registers 
+                pop cx
+                pop bx                          
+                pop ax
+                ret
+
+; Removes cursor from screen
+;       Pass: nothing
+;---------------------------
+Hide_Cursor:
+                push ax                         ; save registers
+                push bx
+                push cx
+                push dx
+                mov ah,1
+                mov ch,0fh
+                mov cl,0
+                int 10h
+                pop dx                          ; restore registers
+                pop cx
+                pop bx
+                pop ax
+                ret
+
+; Puts cursor on screen
+;       Pass: nothing
+;----------------------
+Show_Cursor:
+                push ax                         ; save registers
+                push bx
+                push cx
+                push dx
+                mov ah,1
+                mov ch,6
+                mov cl,7
+                int 10h
+                pop dx                          ; restore registers
+                pop cx
+                pop bx
+                pop ax
+                ret
+
+; Changes color attribute
+;       Pass: al = attr
+;------------------------
+Change_Color:
+                mov color_attr,al               ; move color attr into var
+                ret
+
+; Copy a section from the left of the string
+;       Pass: si = source
+;             cx = number  
+;             di = destination          
+;-------------------------------------------
+Dup_Left:
+                push ax                         ; save ax
+                push cx
+                push di
+                push si
+Left_Loop:      mov al, [si]b
+                mov [di]b, al
+                inc si
+                inc di
+                loop Left_Loop
+                mov [di] b, 00
+                pop si                          ; restore ax
+                pop di
+                pop cx
+                pop ax
+                ret
+
+; Copy a section from the right of the string
+;       Pass: si = source
+;             cx = number  
+;             di = destination          
+Dup_Right:
+                push ax                         ; save registers
+                push di
+                push si
+                push cx
+                add si, cx
+Right_Loop:     mov al, [si]b
+                cmp al, 00
+                je done_Right
+                mov [di]b, al
+                inc si
+                inc di
+                jmp Right_Loop
+Done_Right:     mov [di] b, 00
+                pop cx                          ; restore registers
+                pop si                          
+                pop di
+                pop ax
+                ret
+
+; forms a string by duplicating a character
+;       Pass: di = offset of string 
+;             al = character to duplicate  
+;             cx = number of times  
+;------------------------------------------
+dup_str:
+                push di                         ; save registers
+Dup_str2:       mov [di], al                    ; move value into string
+                inc di                          ; next string pos
+                loop dup_str2                   ; loop in cx > 0
+                mov [di]b, 00                   ; end string
+                pop di                          ; retrive registers
+                ret
+
+; Sends a CRLF to goto the next line
+;       Pass: nothing
+;-----------------------------------
+Send_CRLF:
+                push ax
+                push dx
+                mov ah,2
+                mov dl,13
+                int 21h
+                mov dl,10
+                int 21h
+                call Update_Virtual_Cursor
+                pop dx
+                pop ax
+                ret
+
+; Find a sub-string in a string
+;       Pass: si = sub-string
+;             di = string  
+;       Return: al = position of sub-string (0 if not found)
+;-----------------------------------------------------------
+Find_str:
+                jmp Find_Str2
+Start_Pos       db 0        
+Found_Flag      db 0                
+Find_Str2:      push bx                         ; save registers
+                push cx
+                push dx
+                push si
+                push di
+                xor ax,ax                       ; wipe out ax
+                xor bp,bp
+                xor bx,bx                       ; wipe out bx
+Find_Str_Loop:  mov dl, [di+bx]                 ; load string
+                cmp [si+bp]b, dl                ; compare bytes
+                je Found_one                    ; jump if equal
+                cmp [di+bx]b, 00                ; is it the end of the string
+                je Found_String                 ; if so, exit
+                cmp [si+bp]b, 0                 ; end of string
+                je Found_String                 ; if so, exit
+                mov Found_Flag, 0               ; reset flag
+                mov Start_Pos, 0                ; reset starting pos
+                xor bp,bp                       ; clear any sub-string offset
+                inc bx                          ; next place in string
+                jmp Find_Str_Loop               ; loop
+
+Found_one:      inc bx
+                cmp Found_Flag, 0               ; is this the first match?
+                if e mov Start_Pos, bl          ; if so, save starting place
+                mov Found_Flag, 1               ; set flag 
+                cmp [si+bp]b, 00                ; last byte?
+                je Found_String                 ; is so, exit
+                inc bp                          ; next sub-str pos
+                inc bx                          ; next str pos
+                jmp Find_Str_Loop               ; loop
+
+Found_String:   mov al, Start_Pos               ; return information
+                pop di
+                pop si
+                pop dx
+                pop cx
+                pop bx
+                ret
+
+; Updates real cursor position
+;       Pass: nothing
+;-----------------------------
+Update_Real_Cursor:
+                push dx                         ; save register
+                mov dl,Screen_X                 ; get pos. of virtual cursor 
+                mov dh,Screen_Y                 
+                call GoTo_XY                    ; move real cursor to this
+                pop dx
+                ret
+
+; Updates virtual cursor position
+;       Pass: nothing
+;--------------------------------
+Update_Virtual_Cursor:
+                push ax                         ; save resisters
+                push bx
+                push cx
+                push dx
+                mov ah,3                        ; get cursor pos
+                xor bh,bh                       ; on page 0
+                int 10h                         ; call video
+                call GoTo_XY                    ; move cursor to this pos
+                pop dx                          ; restore registers
+                pop cx
+                pop bx 
+                pop ax
+                ret
+
+; Clears screen to end of line
+;       Pass: nothing
+;------------------------------
+Clear_To_End_Of_Line:
+                push ax                         ; save registers
+                push bx
+                push cx
+                push dx
+                mov dl,Screen_X
+                mov dh,Screen_Y
+                mov ah,6                        ; clear to end of line
+                xor al,al                       ; clear window 
+                mov ch,dh                       ; all on same line
+                mov cl,dl                       ; start at cursor pos
+                mov dl,79                       ; stop at end of line
+                mov bh,Color_Attr               ; load attr
+                int 10h                         ; call video
+                pop dx                          ; restore registers
+                pop cx
+                pop bx
+                pop ax
+                ret
+
+; Returns the length of a string
+;       Pass: si = offset of string
+;       Return: cx = Length of string
+;-------------------------------------
+Length_Str:
+                push si                         ; save original address 
+                push si
+LS_Label:       cmp b[si], 00                   ; is current byte 0?
+                je Str_L_Done                   ; yes? leave
+                inc si                          ; increase address
+                jmp LS_Label                    ; repeat loop
+Str_L_Done:     pop cx                          ; retrive address
+                sub si, cx                      ; get length
+                mov cx, si
+                pop si
+                ret
+
+; Writes a character to the screen 
+;       Pass: dl = character
+;             dh = < ff (right), ff (down) 
+;----------------------------------
+Write_Char:
+                push ax                         ; save registers
+                push bx
+                push dx
+                push es
+                mov ax,Screen_Seg               ; get segment for screen memory
+                mov es,ax                       ; point es to screen
+                mov bx,Screen_ptr               ; pointer to char. in memory 
+                push dx
+                mov dh,Color_Attr               ; load attr
+                mov es:[bx],dx                  ; write to screen
+                pop dx
+                cmp dh, 0ff                     ; does it go down?
+                je down                         ; yes? call down proc
+                call Cursor_Right               ; move to next pos
+                jmp finis                       ; leave
+down:
+                call Cursor_Down                ; write down
+finis:                
+                pop es                          ; restore registers
+                pop dx
+                pop bx
+                pop ax
+                ret
+
+; Move cursor
+;       Pass: dh = Row(Y)
+;             dl = Column(X)
+;----------------------------
+GoTo_XY:
+                push ax                         ; save registers
+                push bx                         
+                mov bh,0                        ; page 0
+                mov ah,2                        ; set cursor pos
+                int 10h                         ; call video
+
+                mov al,dh                       ; get row
+                mov bl,80                       ; multiply by 80
+                mul bl                          ; ax = row * 80
+                add al,dl                       ; add column                       
+                adc ah,0                        ; ax = row * 80 + column
+                shl ax,1                        ; convert to a byte offset
+                mov Screen_ptr,ax               ; save cursor offset
+                mov Screen_X,dl                 ; save cursor position         
+                mov Screen_Y,dh                 
+                pop bx                          ; restore registers
+                pop ax
+                ret
+
+; Moves cursor down on space
+;       Pass: nothing
+;---------------------------
+Cursor_Down:
+                inc Screen_Y b                  ; move v. cursor to next line
+                cmp Screen_Y b,25               ; is it on the last line?
+                jbe ok2                         ; no? then leave
+                dec Screen_Y b                  ; yes? then move back
+ok2:                
+                call update_real_cursor         ; move real cursor 
+                ret
+
+; Moves cursor right one space
+;       Pass: nothing
+;-----------------------------
+Cursor_Right:   
+                inc screen_ptr w                ; move to next char. pos.           
+                inc screen_ptr w
+                inc screen_X b                  ; move to next column
+                cmp screen_X b,79               ; make sure column <= 79
+                jbe ok                          ; jump if good
+                call Send_CRLF                  ; go to next line
+ok:             
+                ret
 
 Intro           db "                 .oO DIRX Fast Directory Listing 1.1 Oo.",0d,0a
                 db "                      Created By Mark Earnest. 1994",0d,0a,0d,0a
@@ -228,7 +605,7 @@ Attrib          db ?
 Time            dw ?                        
 Date            dw ?                      
 Size            dd ?                        
-FName           db "Pink Floyd   ",00
+FName           db "dirx         ",00
 ; Block Ends
 FLen            db ?
 FBase           db 8 dup("?"),0
